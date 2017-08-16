@@ -120,27 +120,6 @@ func main() {
 	<-make(chan struct{})
 }
 
-// SOD Section (Stack Overflow Development)
-type winsize struct {
-	Row    uint16
-	Col    uint16
-	Xpixel uint16
-	Ypixel uint16
-}
-
-func getWidth() uint {
-	ws := &winsize{}
-	retCode, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
-		uintptr(syscall.Stdin),
-		uintptr(syscall.TIOCGWINSZ),
-		uintptr(unsafe.Pointer(ws)))
-
-	if int(retCode) == -1 {
-		panic(errno)
-	}
-	return uint(ws.Col)
-}
-
 var fill_h = []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
 var last_values [channels][channel_buffer]float32
 
@@ -184,3 +163,26 @@ func printBar(value float32, channel int, width uint) {
 
 	fmt.Print(bar + "| ")
 }
+
+// SOD Section (Stack Overflow Development)
+type winsize struct {
+	Row    uint16
+	Col    uint16
+	Xpixel uint16
+	Ypixel uint16
+}
+
+func getWidth() uint {
+	ws := &winsize{}
+	retCode, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
+		uintptr(syscall.Stdin),
+		uintptr(syscall.TIOCGWINSZ),
+		uintptr(unsafe.Pointer(ws)))
+
+	if int(retCode) == -1 {
+		panic(errno)
+	}
+	return uint(ws.Col)
+}
+
+// End of SOD
