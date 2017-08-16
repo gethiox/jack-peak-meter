@@ -44,7 +44,7 @@ func process(nframes uint32) int {
 		avg_main[i] += avg
 
 		if counter >= additional_buffer {
-			printBar(avg_main[i]/float32(additional_buffer), i, getWidth()-19)
+			printBar(avg_main[i]/float32(additional_buffer), i, int(getWidth()-19))
 			avg_main[i] = 0
 		}
 
@@ -145,7 +145,7 @@ func get_avg(channel int) float32 {
 	return avg
 }
 
-func printBar(value float32, channel int, width uint) {
+func printBar(value float32, channel int, width int) {
 	update_cache(value, channel)
 	value = get_avg(channel)
 
@@ -156,8 +156,8 @@ func printBar(value float32, channel int, width uint) {
 		bar = "\r         |"
 	}
 
-	chars := uint(float32(width) * value)
-	for i := uint(0); i < chars; i++ {
+	chars := int(float32(width) * value)
+	for i := 0; i < chars; i++ {
 		bar += fill_h[8]
 	}
 
@@ -166,7 +166,7 @@ func printBar(value float32, channel int, width uint) {
 		bar += fill_h[int(fill_index)]
 	}
 
-	for i := uint(0); i <= width-chars-2; i++ {
+	for i := 0; i <= width-chars-2; i++ {
 		bar += fill_h[0]
 	}
 
