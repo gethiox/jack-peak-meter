@@ -9,49 +9,50 @@ import (
 	"flag"
 )
 
+const channels = 2              // Amount of input channels
+const channel_buffer = 5        // Smoothing graph with last n printed samples, set 1 to disable
+const arbitrary_amplifier = 3.8 // Compensate weak audio signal with this ultimate amplifier value
+const additional_buffer = 16    // Additional sample collecting iterations before displaying graph, saves CPU cycles
+
 var buffer_size int
 var PortsIn []*jack.Port
-
-const channels int = 2
-
-var chuj int = 0
 var avg_main [channels]float32
-
-var additional_buffer = 16
+var counter int
+var avg float32
 
 func process(nframes uint32) int {
-	chuj += 1
-	for i, in := range PortsIn {
-		samplesIn := in.GetBuffer(nframes)
+	counter += 1
+	for i, port := range PortsIn {
+		samples := port.GetBuffer(nframes)
 
-		var avg float32 = 0.0
-		for _, sample := range samplesIn {
+		for _, sample := range samples {
 			if sample < 0 {
 				avg = avg - float32(sample)
 			} else {
 				avg = avg + float32(sample)
 			}
 		}
-		avg = avg * 3 // some arbitrary multiplier
+		avg = avg * arbitrary_amplifier
 		avg = float32(avg) / float32(buffer_size)
+		if avg > 1 {
+			avg = 1
+		}
 
-		avg_main[i] += float32(avg)
+		avg_main[i] += avg
 
-		if chuj > additional_buffer {
-
-			printBar(avg_main[i]/float32(additional_buffer), i, int(getWidth()-19))
-			avg_main[i] = 0.0
+		if counter >= additional_buffer {
+			printBar(avg_main[i]/float32(additional_buffer), i, getWidth()-19)
+			avg_main[i] = 0
 		}
 
 		fmt.Print("\n")
 	}
-	if chuj > additional_buffer {
-		chuj = 0
+	if counter >= additional_buffer {
+		counter = 0
 	}
 	for i := 0; i < channels; i++ {
 		fmt.Print("\033[F")
 	}
-
 	return 0
 }
 
@@ -138,4 +139,48 @@ func getWidth() uint {
 		panic(errno)
 	}
 	return uint(ws.Col)
+}
+
+var fill_h = []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
+var last_values [channels][channel_buffer]float32
+
+func update_cache(value float32, channel int) {
+	l := channel_buffer - 1
+	for i := l; i > 0; i-- {
+		last_values[channel][i] = last_values[channel][i-1]
+	}
+	last_values[channel][0] = value
+}
+
+func get_avg(channel int) float32 {
+	var avg float32
+	for _, v := range last_values[channel] {
+		avg += v
+	}
+	avg = avg / float32(channel_buffer)
+
+	return avg
+}
+
+func printBar(value float32, channel int, width uint) {
+	update_cache(value, channel)
+	value = get_avg(channel)
+
+	bar := fmt.Sprintf("\r  %.3f  |", value)
+
+	chars := uint(float32(width) * value)
+	for i := uint(0); i < chars; i++ {
+		bar += fill_h[8]
+	}
+
+	if chars < width {
+		fill_index := (float32(width)*value - float32(chars)) * 8
+		bar += fill_h[int(fill_index)]
+	}
+
+	for i := uint(0); i <= width-chars-2; i++ {
+		bar += fill_h[0]
+	}
+
+	fmt.Print(bar + "| ")
 }
