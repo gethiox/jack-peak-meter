@@ -37,9 +37,6 @@ func process(nframes uint32) int {
 		}
 		avg = avg * arbitrary_amplifier
 		avg = float32(avg) / float32(buffer_size)
-		if avg > 1 {
-			avg = 1
-		}
 
 		avg_main[i] += avg
 
@@ -141,7 +138,9 @@ func get_avg(channel int) float32 {
 		avg += v
 	}
 	avg = avg / float32(channel_buffer)
-
+	if avg > 1 {
+		avg = 1
+	}
 	return avg
 }
 
