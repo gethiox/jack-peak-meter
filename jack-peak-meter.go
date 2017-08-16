@@ -20,6 +20,9 @@ var avg_main [channels]float32
 var counter int
 var avg float32
 
+var print_title *bool
+var print_values *bool
+
 func process(nframes uint32) int {
 	counter += 1
 	for i, port := range PortsIn {
@@ -62,7 +65,8 @@ func shutdown() {
 }
 
 func main() {
-	boolPtr := flag.Bool("title", false, "Print name of my ultimate visualizer")
+	print_title = flag.Bool("title", false, "Print name of my ultimate visualizer")
+	print_values = flag.Bool("values", false, "Print value before each channel of visualizer")
 	flag.Parse()
 
 	var client *jack.Client
@@ -109,7 +113,7 @@ func main() {
 	fmt.Print("\n\n")
 	terminal_widh := int(getWidth())
 	title_length := len(">>> ULTIMATE SOUND VISUALIZER 2,000,000 <<<")
-	if *boolPtr && terminal_widh >= title_length {
+	if *print_title && terminal_widh >= title_length {
 		title_message := "%s>>> ULTIMATE SOUND VISUALIZER 2,000,000 <<<%s\n"
 		fill := ""
 		for i := 0; i < (terminal_widh-title_length)/2; i++ {
@@ -145,7 +149,12 @@ func printBar(value float32, channel int, width uint) {
 	update_cache(value, channel)
 	value = get_avg(channel)
 
-	bar := fmt.Sprintf("\r  %.3f  |", value)
+	var bar = ""
+	if *print_values {
+		bar = fmt.Sprintf("\r  %.3f  |", value)
+	} else {
+		bar = "\r         |"
+	}
 
 	chars := uint(float32(width) * value)
 	for i := uint(0); i < chars; i++ {
