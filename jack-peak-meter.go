@@ -12,10 +12,12 @@ import (
 const channels = 2              // Amount of input channels
 const channel_buffer = 5        // Smoothing graph with last n printed samples, set 1 to disable
 const arbitrary_amplifier = 3.8 // Compensate weak audio signal with this ultimate amplifier value
-const additional_buffer = 16    // Additional sample collecting iterations before displaying graph, saves CPU cycles
+
+var additional_buffer int
 
 var buffer_size int
 var PortsIn []*jack.Port
+var client *jack.Client
 var avg_main [channels]float32
 var counter int
 var avg float32
@@ -61,12 +63,16 @@ func shutdown() {
 	os.Exit(1)
 }
 
+//func foo(buffer_size int) {
+//	buffer_size = int(client.GetBufferSize())
+//	additional_buffer = calculate_additional_buffer(buffer_size)
+//}
+
 func main() {
 	print_title = flag.Bool("title", false, "Print name of my ultimate visualizer")
 	print_values = flag.Bool("values", false, "Print value before each channel of visualizer")
 	flag.Parse()
 
-	var client *jack.Client
 	var status int
 	var client_name string
 
@@ -83,15 +89,18 @@ func main() {
 	}
 
 	defer client.Close()
-
+	
 	buffer_size = int(client.GetBufferSize())
-
+	additional_buffer = calculate_additional_buffer(buffer_size)
+	
 	if code := client.SetProcessCallback(process); code != 0 {
 		fmt.Println("Failed to set process callback:", code)
 		return
 	}
 	client.OnShutdown(shutdown)
 
+	//client.SetBufferSizeCallback(foo)
+	
 	if code := client.Activate(); code != 0 {
 		fmt.Println("Failed to activate client:", code)
 		return
@@ -143,6 +152,29 @@ func get_avg(channel int) float32 {
 	}
 	return avg
 }
+
+func calculate_additional_buffer(frame_size int) int {
+	if frame_size == 16 {
+		return 64
+	}
+	if frame_size == 32 {
+		return 32
+	}
+	if frame_size == 64 {
+		return 16
+	}
+	if frame_size == 128 {
+		return 8
+	}
+	if frame_size == 256 {
+		return 4
+	}
+	if frame_size == 512 {
+		return 2
+	}
+	return 1
+}
+
 
 func printBar(value float32, channel int, width int) {
 	update_cache(value, channel)
