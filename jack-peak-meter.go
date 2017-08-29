@@ -154,25 +154,10 @@ func get_avg(channel int) float32 {
 }
 
 func calculate_additional_buffer(frame_size int) int {
-	if frame_size == 16 {
-		return 64
+	if frame_size > 1024 {
+		return 1
 	}
-	if frame_size == 32 {
-		return 32
-	}
-	if frame_size == 64 {
-		return 16
-	}
-	if frame_size == 128 {
-		return 8
-	}
-	if frame_size == 256 {
-		return 4
-	}
-	if frame_size == 512 {
-		return 2
-	}
-	return 1
+	return int(1024 / frame_size)
 }
 
 
