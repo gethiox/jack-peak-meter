@@ -11,7 +11,7 @@ import (
 
 const channels = 2              // Amount of input channels
 const channel_buffer = 5        // Smoothing graph with last n printed samples, set 1 to disable
-const arbitrary_amplifier = 3.8 // Compensate weak audio signal with this ultimate amplifier value
+const arbitrary_amplifier = 3.5 // Compensate weak audio signal with this ultimate amplifier value
 
 var additional_buffer int
 
@@ -29,7 +29,7 @@ func process(nframes uint32) int {
 	counter += 1
 	for i, port := range PortsIn {
 		samples := port.GetBuffer(nframes)
-
+		
 		for _, sample := range samples {
 			if sample < 0 {
 				avg = avg - float32(sample)
@@ -39,14 +39,14 @@ func process(nframes uint32) int {
 		}
 		avg = avg * arbitrary_amplifier
 		avg = float32(avg) / float32(buffer_size)
-
+		
 		avg_main[i] += avg
-
+		
 		if counter >= additional_buffer {
-			printBar(avg_main[i]/float32(additional_buffer), i, int(getWidth()-19))
+			printBar(avg_main[i]/float32(additional_buffer), i, int(getWidth()))
 			avg_main[i] = 0
 		}
-
+		
 		fmt.Print("\n")
 	}
 	if counter >= additional_buffer {
@@ -72,10 +72,10 @@ func main() {
 	print_title = flag.Bool("title", false, "Print name of my ultimate visualizer")
 	print_values = flag.Bool("values", false, "Print value before each channel of visualizer")
 	flag.Parse()
-
+	
 	var status int
 	var client_name string
-
+	
 	for i := 0; i < 10; i++ {
 		client_name = fmt.Sprintf("spectrum analyser %d", i)
 		client, status = jack.ClientOpen(client_name, jack.NoStartServer)
@@ -87,7 +87,7 @@ func main() {
 		fmt.Println("Status:", status)
 		return
 	}
-
+	
 	defer client.Close()
 	
 	buffer_size = int(client.GetBufferSize())
@@ -98,14 +98,14 @@ func main() {
 		return
 	}
 	client.OnShutdown(shutdown)
-
+	
 	//client.SetBufferSizeCallback(foo)
 	
 	if code := client.Activate(); code != 0 {
 		fmt.Println("Failed to activate client:", code)
 		return
 	}
-
+	
 	for i := 0; i < channels; i++ {
 		port := client.PortRegister(fmt.Sprintf("input_%d", i), jack.DEFAULT_AUDIO_TYPE, jack.PortIsInput, 0)
 		if i%2 == 0 {
@@ -115,7 +115,7 @@ func main() {
 		}
 		PortsIn = append(PortsIn, port)
 	}
-
+	
 	fmt.Print("\n\n")
 	terminal_widh := int(getWidth())
 	title_length := len(">>> ULTIMATE SOUND VISUALIZER 2,000,000 <<<")
@@ -160,32 +160,33 @@ func calculate_additional_buffer(frame_size int) int {
 	return int(1024 / frame_size)
 }
 
-
 func printBar(value float32, channel int, width int) {
 	update_cache(value, channel)
 	value = get_avg(channel)
-
+	
 	var bar = ""
 	if *print_values {
+		width -= 19
 		bar = fmt.Sprintf("\r  %.3f  |", value)
 	} else {
-		bar = "\r         |"
+		width -= 4
+		bar = "\r |"
 	}
-
+	
 	chars := int(float32(width) * value)
 	for i := 0; i < chars; i++ {
 		bar += fill_h[8]
 	}
-
+	
 	if chars < width {
 		fill_index := (float32(width)*value - float32(chars)) * 8
 		bar += fill_h[int(fill_index)]
 	}
-
+	
 	for i := 0; i <= width-chars-2; i++ {
 		bar += fill_h[0]
 	}
-
+	
 	fmt.Print(bar + "| ")
 }
 
@@ -203,7 +204,7 @@ func getWidth() uint {
 		uintptr(syscall.Stdin),
 		uintptr(syscall.TIOCGWINSZ),
 		uintptr(unsafe.Pointer(ws)))
-
+	
 	if int(retCode) == -1 {
 		panic(errno)
 	}
