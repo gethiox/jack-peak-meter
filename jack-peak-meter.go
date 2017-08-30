@@ -7,11 +7,16 @@ import (
 	"syscall"
 	"unsafe"
 	"flag"
+	"os/signal"
 )
 
 const channels = 2              // Amount of input channels
 const channel_buffer = 5        // Smoothing graph with last n printed samples, set 1 to disable
 const arbitrary_amplifier = 3.5 // Compensate weak audio signal with this ultimate amplifier value
+
+const disableCursor = "\033[?25l"
+const enableCursor = "\033[?25h"
+const moveCursorUp = "\033[F"
 
 var additional_buffer int
 
@@ -53,20 +58,15 @@ func process(nframes uint32) int {
 		counter = 0
 	}
 	for i := 0; i < channels; i++ {
-		fmt.Print("\033[F")
+		fmt.Print(moveCursorUp)
 	}
 	return 0
 }
 
 func shutdown() {
-	fmt.Println("Shutting down")
-	os.Exit(1)
+	fmt.Print(enableCursor + "\n")
+	client.Close()
 }
-
-//func foo(buffer_size int) {
-//	buffer_size = int(client.GetBufferSize())
-//	additional_buffer = calculate_additional_buffer(buffer_size)
-//}
 
 func main() {
 	print_title = flag.Bool("title", false, "Print name of my ultimate visualizer")
@@ -90,6 +90,7 @@ func main() {
 	
 	defer client.Close()
 	
+	fmt.Print(disableCursor)
 	buffer_size = int(client.GetBufferSize())
 	additional_buffer = calculate_additional_buffer(buffer_size)
 	
@@ -127,6 +128,15 @@ func main() {
 		}
 		fmt.Print(fmt.Sprintf(title_message, fill, fill))
 	}
+	
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		shutdown()
+		os.Exit(0)
+	}()
+	
 	<-make(chan struct{})
 }
 
