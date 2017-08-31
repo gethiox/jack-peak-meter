@@ -176,8 +176,8 @@ func printBar(value float32, channel int, width int) {
 	
 	var bar = ""
 	if *print_values {
-		width -= 19
-		bar = fmt.Sprintf("\r  %.3f  |", value)
+		width -= 10
+		bar = fmt.Sprintf("\r %.3f |", value)
 	} else {
 		width -= 4
 		bar = "\r |"
