@@ -11,7 +11,7 @@ import (
 )
 
 const channels = 2              // Amount of input channels
-const channel_buffer = 5        // Smoothing graph with last n printed samples, set 1 to disable
+const channel_buffer = 10        // Smoothing graph with last n printed samples, set 1 to disable
 const arbitrary_amplifier = 3.5 // Compensate weak audio signal with this ultimate amplifier value
 
 const disableCursor = "\033[?25l"
@@ -164,10 +164,10 @@ func get_avg(channel int) float32 {
 }
 
 func calculate_additional_buffer(frame_size int) int {
-	if frame_size > 1024 {
+	if frame_size > 512 {
 		return 1
 	}
-	return int(1024 / frame_size)
+	return int(512 / frame_size)
 }
 
 func printBar(value float32, channel int, width int) {
