@@ -34,7 +34,8 @@ func process(nframes uint32) int {
 	counter += 1
 	for i, port := range PortsIn {
 		samples := port.GetBuffer(nframes)
-		
+
+		avg = 0
 		for _, sample := range samples {
 			if sample < 0 {
 				avg = avg - float32(sample)
