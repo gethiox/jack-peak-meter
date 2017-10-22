@@ -45,14 +45,14 @@ func process(nframes uint32) int {
 		}
 		avg = avg * arbitraryAmplifier
 		avg = float32(avg) / float32(bufferSize)
-		
+
 		avgMain[i] += avg
-		
+
 		if counter >= additionalBuffer {
 			printBar(avgMain[i]/float32(additionalBuffer), i, int(getWidth()))
 			avgMain[i] = 0
 		}
-		
+
 		fmt.Print("\n")
 	}
 	if counter >= additionalBuffer {
@@ -73,10 +73,10 @@ func main() {
 	printTitle = flag.Bool("title", false, "Print name of my ultimate visualizer")
 	printValues = flag.Bool("values", false, "Print value before each channel of visualizer")
 	flag.Parse()
-	
+
 	var status int
 	var clientName string
-	
+
 	for i := 0; i < 10; i++ {
 		clientName = fmt.Sprintf("spectrum analyser %d", i)
 		client, status = jack.ClientOpen(clientName, jack.NoStartServer)
@@ -88,26 +88,26 @@ func main() {
 		fmt.Println("Status:", status)
 		return
 	}
-	
+
 	defer client.Close()
-	
+
 	fmt.Print(disableCursor)
 	bufferSize = int(client.GetBufferSize())
 	additionalBuffer = calculateAdditionalBuffer(bufferSize)
-	
+
 	if code := client.SetProcessCallback(process); code != 0 {
 		fmt.Println("Failed to set process callback:", code)
 		return
 	}
 	client.OnShutdown(shutdown)
-	
+
 	//client.SetBufferSizeCallback(foo)
-	
+
 	if code := client.Activate(); code != 0 {
 		fmt.Println("Failed to activate client:", code)
 		return
 	}
-	
+
 	for i := 0; i < channels; i++ {
 		port := client.PortRegister(fmt.Sprintf("input_%d", i), jack.DEFAULT_AUDIO_TYPE, jack.PortIsInput, 0)
 		if i%2 == 0 {
@@ -117,7 +117,7 @@ func main() {
 		}
 		PortsIn = append(PortsIn, port)
 	}
-	
+
 	fmt.Print("\n\n")
 	terminalWidh := int(getWidth())
 	titleLength := len(">>> ULTIMATE SOUND VISUALIZER 2,000,000 <<<")
@@ -129,7 +129,7 @@ func main() {
 		}
 		fmt.Print(fmt.Sprintf(titleMessage, fill, fill))
 	}
-	
+
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -137,7 +137,7 @@ func main() {
 		shutdown()
 		os.Exit(0)
 	}()
-	
+
 	<-make(chan struct{})
 }
 
@@ -174,7 +174,7 @@ func calculateAdditionalBuffer(frameSize int) int {
 func printBar(value float32, channel int, width int) {
 	updateCache(value, channel)
 	value = getAvg(channel)
-	
+
 	var bar = ""
 	if *printValues {
 		width -= 10
@@ -183,21 +183,21 @@ func printBar(value float32, channel int, width int) {
 		width -= 4
 		bar = "\r |"
 	}
-	
+
 	chars := int(float32(width) * value)
 	for i := 0; i < chars; i++ {
 		bar += fill[8]
 	}
-	
+
 	if chars < width {
 		fillIndex := (float32(width)*value - float32(chars)) * 8
 		bar += fill[int(fillIndex)]
 	}
-	
+
 	for i := 0; i <= width-chars-2; i++ {
 		bar += fill[0]
 	}
-	
+
 	fmt.Print(bar + "| ")
 }
 
@@ -215,7 +215,7 @@ func getWidth() uint {
 		uintptr(syscall.Stdin),
 		uintptr(syscall.TIOCGWINSZ),
 		uintptr(unsafe.Pointer(ws)))
-	
+
 	if int(retCode) == -1 {
 		panic(errno)
 	}
