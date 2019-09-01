@@ -1,207 +1,260 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"github.com/xthexder/go-jack"
 	"os"
+	"os/signal"
 	"syscall"
 	"unsafe"
-	"flag"
-	"os/signal"
+
+	"github.com/xthexder/go-jack"
 )
 
-const channels = 2             // Amount of input channels
-const channelBuffer = 10       // Smoothing graph with last n printed samples, set 1 to disable
-const arbitraryAmplifier = 3.5 // Compensate weak audio signal with this ultimate amplifier value
+const (
+	disableCursor = "\033[?25l"
+	enableCursor  = "\033[?25h"
+	moveCursorUp  = "\033[F"
+)
 
-const disableCursor = "\033[?25l"
-const enableCursor = "\033[?25h"
-const moveCursorUp = "\033[F"
+var (
+	counter int
+)
 
-var additionalBuffer int
+var fillBlocks = []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
 
-var bufferSize int
-var PortsIn []*jack.Port
-var client *jack.Client
-var avgMain [channels]float32
-var counter int
-var avg float32
+type visualizer struct {
+	channels    int     // Amount of input channels
+	buffer      int     // Smoothing graph with last n printed samples, set 1 to disable
+	amplifer    float64 // Compensate weak audio signal with this ultimate amplifier value
+	printValues bool
+	printChnIdx bool
 
-var printTitle *bool
-var printValues *bool
+	additionalBuffer int
+	avg              float32
+	avgMain          []float32
+	lastValues       [][]float32
 
-func process(nframes uint32) int {
-	counter += 1
-	for i, port := range PortsIn {
-		samples := port.GetBuffer(nframes)
-
-		avg = 0
-		for _, sample := range samples {
-			if sample < 0 {
-				avg = avg - float32(sample)
-			} else {
-				avg = avg + float32(sample)
-			}
-		}
-		avg = avg * arbitraryAmplifier
-		avg = float32(avg) / float32(bufferSize)
-
-		avgMain[i] += avg
-
-		if counter >= additionalBuffer {
-			printBar(avgMain[i]/float32(additionalBuffer), i, int(getWidth()))
-			avgMain[i] = 0
-		}
-
-		fmt.Print("\n")
-	}
-	if counter >= additionalBuffer {
-		counter = 0
-	}
-	for i := 0; i < channels; i++ {
-		fmt.Print(moveCursorUp)
-	}
-	return 0
+	client  *jack.Client
+	PortsIn []*jack.Port
 }
 
-func shutdown() {
-	fmt.Print(enableCursor + "\n")
-	client.Close()
-}
-
-func main() {
-	printTitle = flag.Bool("title", false, "Print name of my ultimate visualizer")
-	printValues = flag.Bool("values", false, "Print value before each channel of visualizer")
-	flag.Parse()
-
+func (v *visualizer) Start() error {
 	var status int
 	var clientName string
 
-	for i := 0; i < 10; i++ {
+	// trying to establish JACK client
+	for i := 0; i < 1000; i++ {
 		clientName = fmt.Sprintf("spectrum analyser %d", i)
-		client, status = jack.ClientOpen(clientName, jack.NoStartServer)
+		v.client, status = jack.ClientOpen(clientName, jack.NoStartServer)
 		if status == 0 {
 			break
 		}
 	}
 	if status != 0 {
-		fmt.Println("Status:", status)
-		return
+		return fmt.Errorf("failed to initialize client, errcode: %d", status)
+	}
+	defer v.client.Close()
+
+	// registering JACK callback
+	if code := v.client.SetProcessCallback(v.process); code != 0 {
+		return fmt.Errorf("failed to set process callback: %d", code)
+	}
+	v.client.OnShutdown(v.shutdown)
+
+	fmt.Print(disableCursor) // disablingCursorblink
+	fmt.Print("\n")
+
+	// Activating client
+	if code := v.client.Activate(); code != 0 {
+		return fmt.Errorf("failed to activate client: %d", code)
 	}
 
-	defer client.Close()
+	// registering audio channels inputs and connecting them automatically to system monitor output
+	for i := 1; i <= v.channels; i++ {
+		portName := fmt.Sprintf("input_%d", i)
+		port := v.client.PortRegister(portName, jack.DEFAULT_AUDIO_TYPE, jack.PortIsInput, 0)
+		v.PortsIn = append(v.PortsIn, port)
 
-	fmt.Print(disableCursor)
-	bufferSize = int(client.GetBufferSize())
-	additionalBuffer = calculateAdditionalBuffer(bufferSize)
+		srcPortName := fmt.Sprintf("system:monitor_%d", i)
+		dstPortName := fmt.Sprintf("%s:input_%d", clientName, i)
 
-	if code := client.SetProcessCallback(process); code != 0 {
-		fmt.Println("Failed to set process callback:", code)
-		return
-	}
-	client.OnShutdown(shutdown)
-
-	//client.SetBufferSizeCallback(foo)
-
-	if code := client.Activate(); code != 0 {
-		fmt.Println("Failed to activate client:", code)
-		return
-	}
-
-	for i := 0; i < channels; i++ {
-		port := client.PortRegister(fmt.Sprintf("input_%d", i), jack.DEFAULT_AUDIO_TYPE, jack.PortIsInput, 0)
-		if i%2 == 0 {
-			client.Connect("system:monitor_1", fmt.Sprintf("%s:input_%d", clientName, i))
-		} else {
-			client.Connect("system:monitor_2", fmt.Sprintf("%s:input_%d", clientName, i))
+		code := v.client.Connect(srcPortName, dstPortName)
+		if code != 0 {
+			// fmt.Printf("Failed connecting port \"%s\" to\"%s\"\n", srcPortName, dstPortName)
 		}
-		PortsIn = append(PortsIn, port)
 	}
 
-	fmt.Print("\n\n")
-	terminalWidh := int(getWidth())
-	titleLength := len(">>> ULTIMATE SOUND VISUALIZER 2,000,000 <<<")
-	if *printTitle && terminalWidh >= titleLength {
-		titleMessage := "%s>>> ULTIMATE SOUND VISUALIZER 2,000,000 <<<%s\n"
-		fill := ""
-		for i := 0; i < (terminalWidh-titleLength)/2; i++ {
-			fill += " "
-		}
-		fmt.Print(fmt.Sprintf(titleMessage, fill, fill))
-	}
+	interrupted := make(chan bool)
 
+	// signal handler
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		shutdown()
-		os.Exit(0)
+		v.shutdown()
+		interrupted <- true
+
 	}()
 
-	<-make(chan struct{})
+	buffer := int(v.client.GetBufferSize())
+	v.additionalBuffer = v.calculateAdditionalBuffer(buffer)
+
+	<-interrupted
+	return nil
 }
 
-var fill = []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
-var lastValues [channels][channelBuffer]float32
+func getHighestSpread(samples []jack.AudioSample) jack.AudioSample {
+	var winner jack.AudioSample
+	for _, s := range samples {
+		if s < 0 {
+			s = -s
+		}
 
-func updateCache(value float32, channel int) {
-	l := channelBuffer - 1
-	for i := l; i > 0; i-- {
-		lastValues[channel][i] = lastValues[channel][i-1]
+		if s > winner {
+			winner = s
+		}
 	}
-	lastValues[channel][0] = value
+	return winner
 }
 
-func getAvg(channel int) float32 {
+// JACK callback
+func (v *visualizer) process(nframes uint32) int {
+	counter += 1
+	for i, port := range v.PortsIn {
+		samples := port.GetBuffer(nframes)
+
+		highest := float32(getHighestSpread(samples))
+		highest *= float32(v.amplifer)
+
+		v.avgMain[i] += highest
+
+		if counter >= v.additionalBuffer {
+			value := v.avgMain[i] / float32(v.additionalBuffer)
+			v.updateCache(value, i)
+
+			termWidth, termHeight := getTermWidthHeight()
+
+			if termHeight < v.channels {
+				fmt.Printf(">> Not sufficient space for bars <<\r")
+			} else {
+				v.printBar(v.getAvg(i), termWidth, i)
+
+				if i+1 != v.channels { // do not print newline for last bar
+					fmt.Print("\n")
+				}
+				v.avgMain[i] = 0
+			}
+		}
+
+	}
+	if counter >= v.additionalBuffer {
+		counter = 0
+		for i := 1; i < v.channels; i++ {
+			fmt.Print(moveCursorUp)
+		}
+	}
+
+	return 0
+}
+
+// JACK callback
+func (v *visualizer) shutdown() {
+	fmt.Print(enableCursor + "\n")
+	v.client.Close()
+}
+
+func newVisualizer(channels, buffer int, amplifier float64, printValues, printChnIdx bool) visualizer {
+	var lastValues [][]float32
+	var avgMin []float32
+
+	// preparing fixed-size lastValues struct
+	for channel := 0; channel < channels; channel++ {
+		var tmp []float32
+		for frame := 0; frame < buffer; frame++ {
+			tmp = append(tmp, 0.0)
+		}
+
+		lastValues = append(lastValues, tmp)
+		avgMin = append(avgMin, 0.0)
+	}
+
+	return visualizer{
+		channels,
+		buffer,
+		amplifier,
+		printValues,
+		printChnIdx,
+		1,
+		0.0,
+		avgMin,
+		lastValues,
+		nil,
+		[]*jack.Port{},
+	}
+}
+
+func (v *visualizer) updateCache(value float32, channel int) {
+	l := v.buffer - 1
+	for i := l; i > 0; i-- {
+		v.lastValues[channel][i] = v.lastValues[channel][i-1]
+	}
+	v.lastValues[channel][0] = value
+}
+
+func (v *visualizer) getAvg(channel int) float32 {
 	var avg float32
-	for _, v := range lastValues[channel] {
+	for _, v := range v.lastValues[channel] {
 		avg += v
 	}
-	avg = avg / float32(channelBuffer)
+	avg = avg / float32(v.buffer)
 	if avg > 1 {
 		avg = 1
 	}
 	return avg
 }
 
-func calculateAdditionalBuffer(frameSize int) int {
+func (v *visualizer) calculateAdditionalBuffer(frameSize int) int {
 	if frameSize > 512 {
 		return 1
 	}
-	return int(512 / frameSize)
+	return 512 / frameSize
 }
 
-func printBar(value float32, channel int, width int) {
-	updateCache(value, channel)
-	value = getAvg(channel)
-
+func (v *visualizer) printBar(value float32, width, chanNumber int) {
 	var bar = ""
-	if *printValues {
+	if v.printValues {
 		width -= 10
-		bar = fmt.Sprintf("\r %.3f |", value)
+		bar = fmt.Sprintf(" %.3f |", value)
 	} else {
 		width -= 4
-		bar = "\r |"
+		bar = " |"
 	}
 
-	chars := int(float32(width) * value)
-	for i := 0; i < chars; i++ {
-		bar += fill[8]
+	if v.printChnIdx {
+		width -= 5
+		bar = fmt.Sprintf(" %2d:%s", chanNumber, bar)
 	}
 
-	if chars < width {
-		fillIndex := (float32(width)*value - float32(chars)) * 8
-		bar += fill[int(fillIndex)]
+	bar = "\r" + bar
+
+	fullBlocks := int(float32(width) * value)
+	for i := 0; i < fullBlocks; i++ {
+		bar += fillBlocks[8] // full block fill
 	}
 
-	for i := 0; i <= width-chars-2; i++ {
-		bar += fill[0]
+	if fullBlocks < width {
+		fillBlockIdx := int((float32(width)*value - float32(fullBlocks)) * 8)
+		bar += fillBlocks[fillBlockIdx] // transition block fill
+	}
+
+	for i := 0; i <= width-fullBlocks-2; i++ {
+		bar += fillBlocks[0] // empty block fill
 	}
 
 	fmt.Print(bar + "| ")
 }
 
-// SOD Section (Stack Overflow Development)
 type winsize struct {
 	Row    uint16
 	Col    uint16
@@ -209,7 +262,7 @@ type winsize struct {
 	Ypixel uint16
 }
 
-func getWidth() uint {
+func getTermWidthHeight() (x, y int) {
 	ws := &winsize{}
 	retCode, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
 		uintptr(syscall.Stdin),
@@ -219,7 +272,32 @@ func getWidth() uint {
 	if int(retCode) == -1 {
 		panic(errno)
 	}
-	return uint(ws.Col)
+	x = int(ws.Col)
+	y = int(ws.Row)
+	return
 }
 
-// End of SOD
+func main() {
+	var (
+		printValues   *bool
+		printChnIdx   *bool
+		flagChannels  *int
+		flagBuffer    *int
+		flagAmplifier *float64
+	)
+
+	printValues = flag.Bool("values", false, "Print value before each channel of visualizer")
+	printChnIdx = flag.Bool("index", false, "Print channel index before each channel of visualizer")
+
+	flagChannels = flag.Int("channels", 2, "Amount of input channels")
+	flagBuffer = flag.Int("buffer", 10, "Smoothing graph with last n printed samples, set 1 to disable")
+	flagAmplifier = flag.Float64("amplify", 3.5, "Compensate weak audio signal with this ultimate amplifier value")
+	flag.Parse()
+
+	visualizer := newVisualizer(*flagChannels, *flagBuffer, *flagAmplifier, *printValues, *printChnIdx)
+	err := visualizer.Start()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Bye!")
+}
