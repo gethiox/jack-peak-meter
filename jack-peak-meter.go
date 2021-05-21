@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -23,20 +24,36 @@ var (
 
 var fillBlocks = []string{" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
 
+type portStrings []string
+
+func (p *portStrings) String() string {
+	return strings.Join(*p, ",")
+}
+
+func (p *portStrings) Set(value string) error {
+	*p = append(*p, value)
+	return nil
+}
+
 type visualizer struct {
 	channels    int     // Amount of input channels
+	offset      int     // Number of matching channels to skip over
 	buffer      int     // Smoothing graph with last n printed samples, set 1 to disable
 	amplifer    float64 // Compensate weak audio signal with this ultimate amplifier value
 	printValues bool
 	printChnIdx bool
+	printNames  bool
+	verbose     bool
+	portMatches portStrings // Array of port match patterns used for input bindings
 
 	additionalBuffer int
 	avg              float32
 	avgMain          []float32
 	lastValues       [][]float32
 
-	client  *jack.Client
-	PortsIn []*jack.Port
+	client       *jack.Client
+	PortsIn      []*jack.Port
+	srcPortNames portStrings
 }
 
 func (v *visualizer) Start() error {
@@ -62,28 +79,55 @@ func (v *visualizer) Start() error {
 	}
 	v.client.OnShutdown(v.shutdown)
 
-	fmt.Print(disableCursor) // disablingCursorblink
-	fmt.Print("\n")
-
 	// Activating client
 	if code := v.client.Activate(); code != 0 {
 		return fmt.Errorf("failed to activate client: %d", code)
 	}
 
+	// find jack input ports
+	for i := range v.portMatches {
+		foundNames := v.client.GetPorts(v.portMatches[i], "", jack.PortIsOutput)
+		if len(foundNames) == 0 {
+			return fmt.Errorf("failed to find matching jack ports: %s", v.portMatches[i])
+		}
+		for n := range foundNames {
+			v.srcPortNames = append(v.srcPortNames, foundNames[n])
+		}
+	}
+
+	// adjust for offset, if any
+	if v.offset > 0 {
+		if v.offset >= len(v.srcPortNames) {
+			return fmt.Errorf("offset exceeds number of matching jack ports: %d >= %d", v.offset, len(v.srcPortNames))
+		}
+		v.srcPortNames = v.srcPortNames[v.offset:]
+	}
+
+	// print warning if # channels < # found
+	if v.channels < len(v.srcPortNames) {
+		fmt.Printf(">> Capturing the first %d channels of %d found <<\r", v.channels, len(v.srcPortNames))
+	}
+
 	// registering audio channels inputs and connecting them automatically to system monitor output
-	for i := 1; i <= v.channels; i++ {
+	for i := 1; i <= v.channels && i <= len(v.srcPortNames); i++ {
 		portName := fmt.Sprintf("input_%d", i)
 		port := v.client.PortRegister(portName, jack.DEFAULT_AUDIO_TYPE, jack.PortIsInput, 0)
 		v.PortsIn = append(v.PortsIn, port)
 
-		srcPortName := fmt.Sprintf("system:monitor_%d", i)
+		srcPortName := v.srcPortNames[i-1]
 		dstPortName := fmt.Sprintf("%s:input_%d", clientName, i)
 
 		code := v.client.Connect(srcPortName, dstPortName)
 		if code != 0 {
-			// fmt.Printf("Failed connecting port \"%s\" to\"%s\"\n", srcPortName, dstPortName)
+			return fmt.Errorf("Failed connecting port \"%s\" to \"%s\"\n", srcPortName, dstPortName)
+		}
+		if v.verbose {
+			fmt.Printf("connected port \"%s\" to \"%s\"\n", srcPortName, dstPortName)
 		}
 	}
+
+	fmt.Print(disableCursor) // disablingCursorblink
+	fmt.Print("\n")
 
 	interrupted := make(chan bool)
 
@@ -164,7 +208,7 @@ func (v *visualizer) shutdown() {
 	v.client.Close()
 }
 
-func newVisualizer(channels, buffer int, amplifier float64, printValues, printChnIdx bool) visualizer {
+func newVisualizer(channels, offset, buffer int, amplifier float64, portMatches portStrings, verbose, printValues, printChnIdx, printNames bool) visualizer {
 	var lastValues [][]float32
 	var avgMin []float32
 
@@ -179,18 +223,28 @@ func newVisualizer(channels, buffer int, amplifier float64, printValues, printCh
 		avgMin = append(avgMin, 0.0)
 	}
 
+	// set default input ports pattern, if none provided
+	if len(portMatches) == 0 {
+		portMatches = portStrings{"system:(capture|monitor)_"}
+	}
+
 	return visualizer{
 		channels,
+		offset,
 		buffer,
 		amplifier,
 		printValues,
 		printChnIdx,
+		printNames,
+		verbose,
+		portMatches,
 		1,
 		0.0,
 		avgMin,
 		lastValues,
 		nil,
 		[]*jack.Port{},
+		portStrings{},
 	}
 }
 
@@ -231,9 +285,14 @@ func (v *visualizer) printBar(value float32, width, chanNumber int) {
 		bar = " |"
 	}
 
+	if v.printNames {
+		width -= 26
+		bar = fmt.Sprintf(" %25s%s", v.srcPortNames[chanNumber], bar)
+	}
+
 	if v.printChnIdx {
-		width -= 5
-		bar = fmt.Sprintf(" %2d:%s", chanNumber, bar)
+		width -= 4
+		bar = fmt.Sprintf(" %3d%s", chanNumber, bar)
 	}
 
 	bar = "\r" + bar
@@ -279,22 +338,30 @@ func getTermWidthHeight() (x, y int) {
 
 func main() {
 	var (
+		verbose       *bool
 		printValues   *bool
 		printChnIdx   *bool
+		printNames    *bool
 		flagChannels  *int
+		flagOffset    *int
 		flagBuffer    *int
 		flagAmplifier *float64
+		portMatches   portStrings
 	)
 
+	verbose = flag.Bool("verbose", false, "Print verbose messages for troubleshooting")
 	printValues = flag.Bool("values", false, "Print value before each channel of visualizer")
 	printChnIdx = flag.Bool("index", false, "Print channel index before each channel of visualizer")
+	printNames = flag.Bool("names", false, "Print channel names before each channel of visualizer")
 
-	flagChannels = flag.Int("channels", 2, "Amount of input channels")
+	flagChannels = flag.Int("channels", 2, "Maximum amount of input channels to meter")
+	flagOffset = flag.Int("offset", 0, "Number of matching channels to skip over")
 	flagBuffer = flag.Int("buffer", 10, "Smoothing graph with last n printed samples, set 1 to disable")
 	flagAmplifier = flag.Float64("amplify", 3.5, "Compensate weak audio signal with this ultimate amplifier value")
+	flag.Var(&portMatches, "port", "Name or regex pattern matching one or more jack ports.")
 	flag.Parse()
 
-	visualizer := newVisualizer(*flagChannels, *flagBuffer, *flagAmplifier, *printValues, *printChnIdx)
+	visualizer := newVisualizer(*flagChannels, *flagOffset, *flagBuffer, *flagAmplifier, portMatches, *verbose, *printValues, *printChnIdx, *printNames)
 	err := visualizer.Start()
 	if err != nil {
 		panic(err)
