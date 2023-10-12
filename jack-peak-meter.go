@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/xthexder/go-jack"
+	"gitlab.com/gomidi/midi"
 )
 
 const (
@@ -63,6 +64,7 @@ func (v *visualizer) Start() error {
 	// trying to establish JACK client
 	for i := 0; i < 1000; i++ {
 		clientName = fmt.Sprintf("spectrum analyser %d", i)
+		// v.client, status = jack.ClientOpen(clientName, jack.NullOption)
 		v.client, status = jack.ClientOpen(clientName, jack.NoStartServer)
 		if status == 0 {
 			break
@@ -105,7 +107,7 @@ func (v *visualizer) Start() error {
 
 	// print warning if # channels < # found
 	if v.channels < len(v.srcPortNames) {
-		fmt.Printf(">> Capturing the first %d channels of %d found <<\r", v.channels, len(v.srcPortNames))
+		printfe(">> Capturing the first %d channels of %d found <<\r", v.channels, len(v.srcPortNames))
 	}
 
 	// registering audio channels inputs and connecting them automatically to system monitor output
@@ -122,12 +124,9 @@ func (v *visualizer) Start() error {
 			return fmt.Errorf("Failed connecting port \"%s\" to \"%s\"\n", srcPortName, dstPortName)
 		}
 		if v.verbose {
-			fmt.Printf("connected port \"%s\" to \"%s\"\n", srcPortName, dstPortName)
+			printfe("connected port \"%s\" to \"%s\"\n", srcPortName, dstPortName)
 		}
 	}
-
-	fmt.Print(disableCursor) // disablingCursorblink
-	fmt.Print("\n")
 
 	interrupted := make(chan bool)
 
@@ -136,15 +135,18 @@ func (v *visualizer) Start() error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
+		fmt.Println("custom shutdown 1")
 		v.shutdown()
 		interrupted <- true
-
 	}()
 
-	buffer := int(v.client.GetBufferSize())
-	v.additionalBuffer = v.calculateAdditionalBuffer(buffer)
+	// buffer := int(v.client.GetBufferSize())
+	// v.additionalBuffer = v.calculateAdditionalBuffer(buffer)
 
 	<-interrupted
+
+	printe(disableCursor) // disablingCursorblink
+	printe("\n")
 	return nil
 }
 
@@ -162,11 +164,21 @@ func getHighestSpread(samples []jack.AudioSample) jack.AudioSample {
 	return winner
 }
 
+var processCounter = 0
+
 // JACK callback
 func (v *visualizer) process(nframes uint32) int {
 	counter += 1
-	for i, port := range v.PortsIn {
+	processCounter++
+	// fmt.Printf("Process counter: %d\n", processCounter)
+
+	// fmt.Println("length of portin", len(v.PortsIn))
+
+	// for i, port := range v.PortsIn {
+	for i, port := range v.PortsIn[0:1] {
+		// for i, port := range v.PortsIn[0:1] {
 		samples := port.GetBuffer(nframes)
+		// fmt.Println(port)
 
 		highest := float32(getHighestSpread(samples))
 		highest *= float32(v.amplifer)
@@ -180,12 +192,12 @@ func (v *visualizer) process(nframes uint32) int {
 			termWidth, termHeight := getTermWidthHeight()
 
 			if termHeight < v.channels {
-				fmt.Printf(">> Not sufficient space for bars <<\r")
+				printfe(">> Not sufficient space for bars <<\r")
 			} else {
 				v.printBar(v.getAvg(i), termWidth, i)
 
 				if i+1 != v.channels { // do not print newline for last bar
-					fmt.Print("\n")
+					printe("\n")
 				}
 				v.avgMain[i] = 0
 			}
@@ -195,7 +207,7 @@ func (v *visualizer) process(nframes uint32) int {
 	if counter >= v.additionalBuffer {
 		counter = 0
 		for i := 1; i < v.channels; i++ {
-			fmt.Print(moveCursorUp)
+			printe(moveCursorUp)
 		}
 	}
 
@@ -204,8 +216,14 @@ func (v *visualizer) process(nframes uint32) int {
 
 // JACK callback
 func (v *visualizer) shutdown() {
-	fmt.Print(enableCursor + "\n")
-	v.client.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered from panic:", r)
+		}
+	}()
+
+	printe(enableCursor + "\n")
+	// v.client.Close()
 }
 
 func newVisualizer(channels, offset, buffer int, amplifier float64, portMatches portStrings, verbose, printValues, printChnIdx, printNames bool) visualizer {
@@ -311,7 +329,9 @@ func (v *visualizer) printBar(value float32, width, chanNumber int) {
 		bar += fillBlocks[0] // empty block fill
 	}
 
-	fmt.Print(bar + "| ")
+	printe(bar + "| ")
+
+	processFrames(value, fullBlocks)
 }
 
 type winsize struct {
@@ -336,7 +356,18 @@ func getTermWidthHeight() (x, y int) {
 	return
 }
 
+var midiOut midi.Out
+
 func main() {
+	var close func()
+	midiOut, close = initMidi()
+	defer close()
+	// hit()
+
+	// if true {
+	// 	return
+	// }
+
 	var (
 		verbose       *bool
 		printValues   *bool
@@ -361,10 +392,49 @@ func main() {
 	flag.Var(&portMatches, "port", "Name or regex pattern matching one or more jack ports.")
 	flag.Parse()
 
-	visualizer := newVisualizer(*flagChannels, *flagOffset, *flagBuffer, *flagAmplifier, portMatches, *verbose, *printValues, *printChnIdx, *printNames)
-	err := visualizer.Start()
-	if err != nil {
-		panic(err)
+	v := newVisualizer(*flagChannels, *flagOffset, *flagBuffer, *flagAmplifier, portMatches, *verbose, *printValues, *printChnIdx, *printNames)
+	go v.Start()
+
+	interrupted := make(chan bool)
+
+	// signal handler
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("custom shutdown 2")
+		// v.shutdown()
+		interrupted <- true
+	}()
+
+	// buffer := int(v.client.GetBufferSize())
+	// v.additionalBuffer = v.calculateAdditionalBuffer(buffer)
+
+	<-interrupted
+
+	// err := visualizer.Start()
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// printlne("Bye!")
+}
+
+var printfe = func(s string, toFormat ...interface{}) {
+	// if true {
+	// 	return
+	// }
+	fmt.Printf(s, toFormat)
+}
+
+var printe = func(s string) {
+	if true {
+		return
 	}
-	fmt.Println("Bye!")
+	fmt.Print(s)
+}
+var printlne = func(s string) {
+	// if true {
+	// 	return
+	// }
+	fmt.Println(s)
 }

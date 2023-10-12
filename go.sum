@@ -1,2 +1,14 @@
-github.com/xthexder/go-jack v0.0.0-20201026211055-5b07fb071116 h1:03B3T3Dx1V/ZgapsHWtiyUtd6fGLVYNE8G4EYWoluRE=
-github.com/xthexder/go-jack v0.0.0-20201026211055-5b07fb071116/go.mod h1:0UTXja5DHE3Z5tqm0WxYwpsclGdma/82Vw1JszrfzOE=
+github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
+github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
+github.com/rakyll/portmidi v0.0.0-20170620004031-e434d7284291/go.mod h1:tO1ylmFo6+hnYFvj/fd92q30wkNQwgWC/8mcHq0KkQU=
+github.com/rakyll/portmidi v0.0.0-20201020180702-d436ceaa537a h1:+qeh9b4LlO8AYVvm+TG4OXDRwBynTLk82t0HDBBBOQ8=
+github.com/rakyll/portmidi v0.0.0-20201020180702-d436ceaa537a/go.mod h1:xKffaBd7e1YUoLpR2azvJqkxEdUDNGNDMlsUNdv6Bcs=
+github.com/xthexder/go-jack v0.0.0-20220805234212-bc8604043aba h1:QighQ8fJJOqipXXurg9WghoImtvl7CHTpe21GDYdIkk=
+github.com/xthexder/go-jack v0.0.0-20220805234212-bc8604043aba/go.mod h1:T6DswVPJzBW/Xg64l/gohXVgSW81GwXyMws1fkqxlUg=
+gitlab.com/gomidi/midi v1.23.5/go.mod h1:3ohtNOhqoSakkuLG/Li1OI6I3J1c2LErnJF5o/VBq1c=
+gitlab.com/gomidi/midi v1.23.7 h1:I6qKoIk9s9dcX+pNf0jC+tziCzJFn82bMpuntRkLeik=
+gitlab.com/gomidi/midi v1.23.7/go.mod h1:3ohtNOhqoSakkuLG/Li1OI6I3J1c2LErnJF5o/VBq1c=
+gitlab.com/gomidi/midi/v2 v2.0.25 h1:dkzVBqbaFHjyWwP71MrQNX7IeRUIDonddmHbPpO/Ucg=
+gitlab.com/gomidi/midi/v2 v2.0.25/go.mod h1:quTyMKSQ4Klevxu6gY4gy2USbeZra0fV5SalndmPfsY=
+gitlab.com/gomidi/portmididrv v0.7.1 h1:4+mX7HlxbD+JvprJl5pigj1pRxxPXzuSgLIiyzAIydY=
+gitlab.com/gomidi/portmididrv v0.7.1/go.mod h1:H+WVjQPG4D5YJ6+fGKv0apxHN6qbXbNce/3oxZaPSMY=
